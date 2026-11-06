@@ -184,7 +184,7 @@ void ContentCleanerProcessor::applyProblem (const juce::String& id, int L)
 {
     struct P { const char* id; float value; };
     std::vector<P> v;
-    const bool on = L > 0;
+    const float on = L > 0 ? 1.f : 0.f;
     auto pick = [L] (float a, float b, float c, float d) { return L <= 0 ? a : L == 1 ? b : L == 2 ? c : d; };
 
     if (id == ParamID::pRoom)
@@ -195,7 +195,7 @@ void ContentCleanerProcessor::applyProblem (const juce::String& id, int L)
     else if (id == ParamID::pHum)
         v = { { ParamID::humOn, on }, { ParamID::humDepth, pick (0.f, 20.f, 35.f, 50.f) } };
     else if (id == ParamID::pPops)
-        v = { { ParamID::plosiveOn, on }, { ParamID::dcOn, L >= 2 }, { ParamID::dcSens, pick (0.f, 40.f, 60.f, 80.f) } };
+        v = { { ParamID::plosiveOn, on }, { ParamID::dcOn, L >= 2 ? 1.f : 0.f }, { ParamID::dcSens, pick (0.f, 40.f, 60.f, 80.f) } };
     else if (id == ParamID::pHarsh)
         v = { { ParamID::dsOn, on }, { ParamID::dsAmount, pick (0.f, 25.f, 45.f, 70.f) } };
     else if (id == ParamID::pUneven)
