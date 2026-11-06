@@ -1,0 +1,85 @@
+name: Build plugins
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (universal, VST3 + AU)
+            os: macos-14
+            cmake_extra: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+            targets: ContentCleaner_VST3 ContentCleaner_AU ContentCleaner_Standalone
+            artifact: ContentCleaner-macOS
+          - name: Windows (x64, VST3)
+            os: windows-latest
+            cmake_extra: -A x64
+            targets: ContentCleaner_VST3 ContentCleaner_Standalone
+            artifact: ContentCleaner-Windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.4-${{ runner.os }}
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_extra }}
+
+      - name: Build
+        run: cmake --build build --config Release --target ${{ matrix.targets }} --parallel
+
+      - name: Run analyzer test
+        run: |
+          cmake --build build --config Release --target AnalyzerTest --parallel
+          ./build/AnalyzerTest_artefacts/Release/AnalyzerTest
+        shell: bash
+
+      - name: Collect (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p out
+          cp -R "build/ContentCleaner_artefacts/Release/VST3/Content Cleaner.vst3" out/
+          cp -R "build/ContentCleaner_artefacts/Release/AU/Content Cleaner.component" out/
+          cp -R "build/ContentCleaner_artefacts/Release/Standalone/Content Cleaner.app" out/
+          # Ad-hoc sign so Gatekeeper lets a tester run it (replace with Developer ID for release)
+          codesign --force --deep -s - "out/Content Cleaner.vst3" "out/Content Cleaner.component" "out/Content Cleaner.app"
+          cat > out/INSTALL.txt <<'EOF'
+          Content Cleaner — macOS test build (ad-hoc signed, not notarized)
+
+          1. Copy "Content Cleaner.vst3"      -> /Library/Audio/Plug-Ins/VST3/
+             Copy "Content Cleaner.component" -> /Library/Audio/Plug-Ins/Components/
+          2. First launch: macOS may warn "unverified developer". Run once in Terminal:
+                 xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/Content Cleaner.vst3"
+                 xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/Components/Content Cleaner.component"
+          3. Premiere: Preferences > Audio > Audio Plug-In Manager > Scan.
+             For AU: killall -9 AudioComponentRegistrar, then rescan.
+          EOF
+          cd out && zip -ry ../ContentCleaner-macOS.zip .
+
+      - name: Collect (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item -Recurse "build/ContentCleaner_artefacts/Release/VST3/Content Cleaner.vst3" out/
+          Copy-Item -Recurse "build/ContentCleaner_artefacts/Release/Standalone" out/Standalone
+          Set-Content out/INSTALL.txt "Copy 'Content Cleaner.vst3' to C:\Program Files\Common Files\VST3\ then rescan plug-ins in Premiere (Preferences > Audio > Audio Plug-In Manager)."
+          Compress-Archive -Path out/* -DestinationPath ContentCleaner-Windows.zip
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          if-no-files-found: error
