@@ -51,5 +51,5 @@ private:
     float inHold = -100.f, outHold = -100.f;
     std::vector<float> smoothedGains;
 
-    static constexpr int width = 980, headerH = 48, simpleH = 404, stripH = 168, advancedH = simpleH + 2 * stripH + 36;
+    static constexpr int width = 980, headerH = 48, simpleH = 472, stripH = 168, advancedH = simpleH + 2 * stripH + 36;
 };

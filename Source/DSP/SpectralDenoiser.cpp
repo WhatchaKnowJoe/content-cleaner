@@ -31,6 +31,7 @@ void SpectralDenoiser::prepare (const juce::dsp::ProcessSpec& spec)
 
     dereverb.prepare (numBins, (int) spec.numChannels, spec.sampleRate, hopSize);
     lastGains.assign ((size_t) numBins, 1.f);
+    lastMags.assign ((size_t) numBins, 0.f);
     reset();
 }
 
@@ -132,8 +133,7 @@ void SpectralDenoiser::processFrame (Channel& ch, int channelIndex)
         }
     }
 
-    if (channelIndex == 0)
-        lastGains = ch.gains;
+    if (channelIndex == 0) { lastGains = ch.gains; lastMags = ch.mags; }
 
     fft.performRealOnlyInverseTransform (ch.frame.data());
 

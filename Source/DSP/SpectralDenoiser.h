@@ -48,6 +48,7 @@ public:
 
     // For the UI: latest per-bin gain (0..1) and magnitude, channel 0.
     const std::vector<float>& getLastGains() const noexcept { return lastGains; }
+    const std::vector<float>& getLastMags() const noexcept  { return lastMags; }
 
 private:
     struct Channel
@@ -75,5 +76,5 @@ private:
     bool profileLearned = false;
     int  learnFramesTotal = 0;
 
-    std::vector<float> lastGains;
+    std::vector<float> lastGains, lastMags;
 };

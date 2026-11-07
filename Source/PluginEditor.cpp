@@ -62,9 +62,10 @@ ContentCleanerEditor::ContentCleanerEditor (ContentCleanerProcessor& p)
     addAndMakeVisible (advancedButton);
 
     // --- Problem cards ------------------------------------------------------------------------
-    for (auto& pr : Presets::problems)
+    for (size_t i = 0; i < Presets::problems.size(); ++i)
     {
-        auto c = std::make_unique<ProblemCard> (apvts, pr.id, pr.title, pr.blurb);
+        auto& pr = Presets::problems[i];
+        auto c = std::make_unique<ProblemCard> (apvts, (int) i, pr.id, pr.title, pr.blurb);
         addAndMakeVisible (*c);
         problemCards.push_back (std::move (c));
     }
@@ -143,8 +144,8 @@ void ContentCleanerEditor::resized()
     statusArea = actions.removeFromRight (150);
 
     main.removeFromTop (12);
-    auto grid = main.removeFromTop (2 * 86);
-    const int cols = 4, cellW = grid.getWidth() / cols, cellH = 86;
+    auto grid = main.removeFromTop (2 * 120);
+    const int cols = 4, cellW = grid.getWidth() / cols, cellH = 120;
     for (int i = 0; i < (int) problemCards.size(); ++i)
         problemCards[(size_t) i]->setBounds (grid.getX() + (i % cols) * cellW, grid.getY() + (i / cols) * cellH, cellW, cellH);
     reportArea = juce::Rectangle<int> (grid.getX() + 3 * cellW, grid.getY() + cellH, cellW, cellH);
@@ -251,37 +252,71 @@ void ContentCleanerEditor::drawStatusPill (juce::Graphics& g, juce::Rectangle<in
 
 void ContentCleanerEditor::drawReportCard (juce::Graphics& g, juce::Rectangle<int> r)
 {
-    auto box = r.toFloat().reduced (3.f);
-    g.setColour (Theme::background);
-    g.fillRoundedRectangle (box, 8.f);
-    g.setColour (Theme::border);
-    g.drawRoundedRectangle (box, 8.f, 1.f);
-
-    auto inner = r.reduced (12, 9);
-    g.setColour (Theme::textDim);
-    g.setFont (Theme::label (10.f));
-    g.drawText ("WHAT I FOUND", inner.removeFromTop (14), juce::Justification::centredLeft);
-
+    auto box = r.toFloat().reduced (4.f);
+    const bool busy = processor.isAnalyzing();
     auto rep = processor.getLastReport();
-    g.setFont (Theme::body (10.5f));
-    if (processor.isAnalyzing())
+
+    juce::ColourGradient bg (Theme::background.brighter (0.03f), 0.f, box.getY(), Theme::background, 0.f, box.getBottom(), false);
+    g.setGradientFill (bg);
+    g.fillRoundedRectangle (box, 10.f);
+    g.setColour (busy ? Theme::accent.withAlpha (0.5f) : Theme::border);
+    g.drawRoundedRectangle (box, 10.f, 1.f);
+
+    auto inner = r.reduced (14, 11);
+    auto head = inner.removeFromTop (16);
+    g.setColour (busy ? Theme::accent : Theme::textDim);
+    g.setFont (Theme::label (9.5f));
+    g.drawText (busy ? "LISTENING" : "WHAT I FOUND", head, juce::Justification::centredLeft);
+    if (rep.valid && ! busy)
     {
-        g.setColour (Theme::accent);
-        g.drawText ("Listening to the clip…", inner, juce::Justification::centredLeft);
+        g.setColour (Theme::textMute);
+        g.setFont (Theme::mono (9.f));
+        g.drawText (juce::String ((int) std::round (rep.snrDb)) + " dB clean", head, juce::Justification::centredRight);
+    }
+    inner.removeFromTop (6);
+
+    g.setFont (Theme::body (10.5f));
+    if (busy)
+    {
+        // animated dots
+        const int dots = (int) (juce::Time::getMillisecondCounter() / 350) % 4;
+        g.setColour (Theme::text);
+        g.drawText ("Analyzing the clip" + juce::String::repeatedString (".", dots), inner.removeFromTop (14), juce::Justification::centredLeft);
+        auto bar = inner.removeFromTop (10).withHeight (4).toFloat();
+        g.setColour (Theme::track); g.fillRoundedRectangle (bar, 2.f);
+        const float ph = (float) (juce::Time::getMillisecondCounter() % 1500) / 1500.f;
+        g.setGradientFill (Theme::accentGradient (bar));
+        g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * 0.3f).translated (bar.getWidth() * 0.7f * ph, 0.f), 2.f);
     }
     else if (! rep.valid)
     {
+        g.setColour (Theme::textDim);
+        g.drawFittedText ("Play the clip and press Analyze.", inner.removeFromTop (14), juce::Justification::centredLeft, 1);
         g.setColour (Theme::textMute);
-        g.drawFittedText ("Play the clip, press Analyze. Problems get set for you.", inner, juce::Justification::topLeft, 3);
+        g.drawFittedText ("I'll set the problems above for you.", inner.removeFromTop (14), juce::Justification::centredLeft, 1);
     }
     else
     {
-        g.setColour (Theme::text);
-        int lines = 0;
-        for (int i = 1; i < rep.findings.size() && lines < 3; ++i, ++lines)
-            g.drawText ("· " + rep.findings[i], inner.removeFromTop (14), juce::Justification::centredLeft, true);
-        if (rep.findings.size() <= 1)
-            g.drawText ("Sounds clean already.", inner.removeFromTop (14), juce::Justification::centredLeft);
+        int shown = 0;
+        for (size_t i = 0; i < Presets::problems.size() && shown < 3; ++i)
+        {
+            if (rep.levels[i] == 0) continue;
+            auto row = inner.removeFromTop (15);
+            const juce::Colour c = SegmentedControl::colourForLevel (rep.levels[i]);
+            g.setColour (c);
+            g.fillEllipse (row.removeFromLeft (10).toFloat().withSizeKeepingCentre (6.f, 6.f));
+            row.removeFromLeft (4);
+            g.setColour (Theme::text);
+            g.drawText (Presets::problems[i].title, row, juce::Justification::centredLeft, true);
+            ++shown;
+        }
+        if (shown == 0)
+        {
+            g.setColour (Theme::ok);
+            g.fillEllipse (inner.removeFromLeft (10).toFloat().withSizeKeepingCentre (6.f, 6.f).withY ((float) inner.getY() + 4.f));
+            g.setColour (Theme::text);
+            g.drawText ("Sounds clean already", inner.withTrimmedLeft (4).removeFromTop (15), juce::Justification::centredLeft);
+        }
     }
 }
 
@@ -320,50 +355,100 @@ void ContentCleanerEditor::drawMeter (juce::Graphics& g, juce::Rectangle<int> r,
 void ContentCleanerEditor::drawSpectralDisplay (juce::Graphics& g, juce::Rectangle<int> r)
 {
     auto box = r.toFloat();
-    g.setColour (Theme::surface);
-    g.fillRoundedRectangle (box, 8.f);
+    juce::ColourGradient bg (Theme::surface, 0.f, box.getY(), Theme::background.brighter (0.02f), 0.f, box.getBottom(), false);
+    g.setGradientFill (bg);
+    g.fillRoundedRectangle (box, 10.f);
+    g.setColour (Theme::border);
+    g.drawRoundedRectangle (box.reduced (0.5f), 10.f, 1.f);
 
-    auto inner = box.reduced (10.f, 6.f).withTrimmedBottom (12.f).withTrimmedTop (14.f);
+    auto inner = box.reduced (12.f, 8.f).withTrimmedBottom (12.f).withTrimmedTop (16.f).withTrimmedLeft (28.f);
     const float minF = 40.f, maxF = 20000.f, nyquist = 24000.f;
     auto xForF = [&] (float f) { return inner.getX() + inner.getWidth() * std::log (f / minF) / std::log (maxF / minF); };
 
-    g.setFont (Theme::mono (9.f));
-    for (float f : { 100.f, 1000.f, 10000.f })
+    // grid + frequency labels
+    g.setFont (Theme::mono (8.5f));
+    for (float f : { 100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f })
     {
         const float x = xForF (f);
-        g.setColour (Theme::border.withAlpha (0.7f));
+        const bool major = f == 100.f || f == 1000.f || f == 10000.f;
+        g.setColour (Theme::border.withAlpha (major ? 0.9f : 0.4f));
         g.drawVerticalLine ((int) x, inner.getY(), inner.getBottom());
+        if (major)
+        {
+            g.setColour (Theme::textMute);
+            g.drawText (f >= 1000.f ? juce::String ((int) (f / 1000.f)) + "k" : juce::String ((int) f),
+                        (int) x - 14, (int) inner.getBottom() + 1, 28, 11, juce::Justification::centred);
+        }
+    }
+    // dB scale for the removed curve (0 at bottom, -12 dB at top)
+    for (int i = 0; i <= 3; ++i)
+    {
+        const float yy = inner.getBottom() - inner.getHeight() * (float) i / 3.f;
+        g.setColour (Theme::border.withAlpha (0.35f));
+        g.drawHorizontalLine ((int) yy, inner.getX(), inner.getRight());
         g.setColour (Theme::textMute);
-        g.drawText (f >= 1000.f ? juce::String ((int) (f / 1000.f)) + "k" : juce::String ((int) f),
-                    (int) x + 4, (int) inner.getBottom(), 30, 12, juce::Justification::centredLeft);
+        g.drawText (i == 0 ? "0" : juce::String (-4 * i), (int) box.getX() + 8, (int) yy - 6, 18, 11, juce::Justification::centredRight);
     }
 
     g.setColour (Theme::textDim);
     g.setFont (Theme::label (9.5f));
-    g.drawText ("WHAT'S BEING REMOVED", box.reduced (12.f, 4.f), juce::Justification::topLeft);
+    g.drawText ("WHAT'S BEING REMOVED", box.reduced (12.f, 5.f), juce::Justification::topLeft);
     g.setColour (Theme::textMute);
     g.setFont (Theme::mono (9.f));
-    g.drawText (juce::String (processor.getChain().getLoudness().getShortTermLUFS(), 1) + " LUFS",
-                box.reduced (12.f, 4.f), juce::Justification::topRight);
+    const float lufs = processor.getChain().getLoudness().getShortTermLUFS();
+    g.drawText (lufs > -69.f ? juce::String (lufs, 1) + " LUFS" : "-- LUFS", box.reduced (12.f, 5.f), juce::Justification::topRight);
 
     const auto& gains = processor.getChain().getSpectral().getLastGains();
-    if (gains.empty()) return;
+    const auto& mags  = processor.getChain().getSpectral().getLastMags();
+    const bool haveAudio = processor.inputPeakDb.load() > -80.f && ! gains.empty();
+
+    if (! haveAudio)
+    {
+        g.setColour (Theme::textMute);
+        g.setFont (Theme::body (11.f));
+        g.drawText ("Waiting for audio", inner, juce::Justification::centred);
+        return;
+    }
+
     if (smoothedGains.size() != gains.size()) smoothedGains = gains;
     for (size_t i = 0; i < gains.size(); ++i) smoothedGains[i] += 0.35f * (gains[i] - smoothedGains[i]);
-
-    juce::Path p;
     const int bins = (int) smoothedGains.size();
+
+    // Input spectrum (dim) behind everything: -90..0 dBFS-ish mapped to the box height.
+    if (mags.size() == gains.size())
+    {
+        juce::Path sp;
+        sp.startNewSubPath (inner.getX(), inner.getBottom());
+        for (int k = 1; k < bins; ++k)
+        {
+            const float f = (float) k / (float) (bins - 1) * nyquist;
+            if (f < minF || f > maxF) continue;
+            const float db = juce::Decibels::gainToDecibels (mags[(size_t) k] / 256.f, -90.f);    // FFT-size normalised
+            const float y = inner.getBottom() - inner.getHeight() * juce::jlimit (0.f, 1.f, (db + 90.f) / 90.f);
+            sp.lineTo (xForF (f), y);
+        }
+        sp.lineTo (inner.getRight(), inner.getBottom());
+        sp.closeSubPath();
+        g.setColour (Theme::accent.withAlpha (0.10f));
+        g.fillPath (sp);
+        g.setColour (Theme::accent.withAlpha (0.35f));
+        g.strokePath (sp, juce::PathStrokeType (1.f));
+    }
+
+    // Removed (attenuation in dB, 0..12 dB mapped to height)
+    juce::Path p;
     p.startNewSubPath (inner.getX(), inner.getBottom());
     for (int k = 1; k < bins; ++k)
     {
         const float f = (float) k / (float) (bins - 1) * nyquist;
         if (f < minF || f > maxF) continue;
-        const float y = inner.getBottom() - inner.getHeight() * juce::jlimit (0.f, 1.f, 1.f - smoothedGains[(size_t) k]);
+        const float attDb = -juce::Decibels::gainToDecibels (juce::jmax (smoothedGains[(size_t) k], 0.001f));
+        const float y = inner.getBottom() - inner.getHeight() * juce::jlimit (0.f, 1.f, attDb / 12.f);
         p.lineTo (xForF (f), y);
     }
     p.lineTo (inner.getRight(), inner.getBottom());
     p.closeSubPath();
-    juce::ColourGradient fill (Theme::removed.withAlpha (0.55f), 0.f, inner.getY(), Theme::removed.withAlpha (0.03f), 0.f, inner.getBottom(), false);
+    juce::ColourGradient fill (Theme::removed.withAlpha (0.6f), 0.f, inner.getY(), Theme::removed.withAlpha (0.04f), 0.f, inner.getBottom(), false);
     g.setGradientFill (fill);
     g.fillPath (p);
     g.setColour (Theme::removed);
